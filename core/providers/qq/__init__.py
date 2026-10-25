@@ -102,6 +102,14 @@ class QqProvider(MusicProvider):
         """搜索专辑（旁路代理）"""
         return self._ensure_client().search_albums(*args, **kwargs)
 
+    def search_programs(self, *args, **kwargs):
+        """搜索节目（旁路代理）"""
+        return self._ensure_client().search_programs(*args, **kwargs)
+
+    def search_program_albums(self, *args, **kwargs):
+        """搜索节目专辑（旁路代理）"""
+        return self._ensure_client().search_program_albums(*args, **kwargs)
+
     def get_album_songs(self, *args, **kwargs):
         """获取专辑内歌曲（旁路代理）"""
         return self._ensure_client().get_album_songs(*args, **kwargs)

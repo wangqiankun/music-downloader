@@ -121,6 +121,7 @@ RUN mkdir -p /data /app/downloads && chown -R deen:deen /data /app/downloads
 COPY --chown=deen:deen api/ /app/api/
 COPY --chown=deen:deen core/ /app/core/
 COPY --chown=deen:deen webapp/ /app/webapp/
+COPY --chown=deen:deen version.txt /app/version.txt
 
 # Make the three API binaries executable. They live in /app/api/ — the Python
 # code looks them up via the project root (see core/providers/_proc.py), so no

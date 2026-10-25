@@ -922,13 +922,15 @@ class TaskManager:
         )
         return {"enqueued": enqueued, "excluded": excluded, "skipped": skipped, "total": total}
 
-    def download_album(self, album_id: str, album_name: str = "", platform: str = "netease") -> dict:
-        """下载专辑内全部歌曲（应用搜索场景排除过滤）
+    def download_album(self, album_id: str, album_name: str = "", platform: str = "netease",
+                       album_kind: str = "album") -> dict:
+        """下载专辑内全部歌曲或节目（应用搜索场景排除过滤）
 
         Args:
             album_id: 专辑 ID（str：netease 为数字 ID，QQ 为 albummid 字符串）
             album_name: 专辑名（用于任务记录）
             platform: 平台标识，默认 netease
+            album_kind: album=音乐专辑，program=QQ 节目专辑
 
         Returns:
             {"enqueued": int, "excluded": int, "skipped": int, "total": int}
@@ -942,7 +944,9 @@ class TaskManager:
         enqueued = 0
         excluded = 0
         skipped = 0
-        pl_name = f"专辑: {album_name}" if album_name else f"专辑ID: {album_id}"
+        album_kind = "program" if album_kind == "program" and platform == "qq" else "album"
+        album_label = "节目专辑" if album_kind == "program" else "专辑"
+        pl_name = f"{album_label}: {album_name}" if album_name else f"{album_label}ID: {album_id}"
         search_scope_enabled = self._exclude_enabled("search")
 
         with self.app.app_context():
@@ -957,7 +961,7 @@ class TaskManager:
                 _tartists = t.get("artists") or ""
                 if search_scope_enabled and self._should_exclude(_tname, _tartists):
                     excluded += 1
-                    logger.info("专辑下载跳过(命中排除关键字): %s - %s", _tartists, _tname)
+                    logger.info("%s下载跳过(命中排除关键字): %s - %s", album_label, _tartists, _tname)
                     continue
                 existing = Song.query.filter_by(id=sid, platform=platform, status="success").first()
                 if existing:
@@ -1008,8 +1012,8 @@ class TaskManager:
                 enqueued += 1
 
         logger.info(
-            "专辑 [%s](id=%s) 共 %d 首：入队 %d，排除 %d，跳过(已下载/进行中/曾失败) %d",
-            album_name, album_id, total, enqueued, excluded, skipped,
+            "%s [%s](id=%s) 共 %d 项：入队 %d，排除 %d，跳过(已下载/进行中/曾失败) %d",
+            album_label, album_name, album_id, total, enqueued, excluded, skipped,
         )
         return {"enqueued": enqueued, "excluded": excluded, "skipped": skipped, "total": total}
 
@@ -1825,6 +1829,23 @@ class TaskManager:
             db.session.commit()
         logger.info("任务已删除: pk=%s (原状态 %s)", pk, status)
         return True, "已删除任务"
+
+    def delete_all_tasks(self) -> int:
+        """删除当前全部在途任务，逐条复用单任务的中止和清理逻辑"""
+        with self.app.app_context():
+            pks = [row[0] for row in db.session.query(DownloadTask.pk).filter(
+                DownloadTask.status.in_(ACTIVE_TASK_STATUSES)
+            ).order_by(DownloadTask.created_at).all()]
+
+        # 先取固定快照，再逐条删除，避免把删除期间新加入队列的任务误算入本次操作。
+        deleted = 0
+        for pk in pks:
+            ok, _ = self.delete_task(pk)
+            if ok:
+                deleted += 1
+
+        logger.info("批量删除下载任务: 已删除 %d/%d 个", deleted, len(pks))
+        return deleted
 
     def pause_all(self) -> int:
         """暂停全部在途任务，返回受影响数量"""

@@ -40,13 +40,17 @@ function _restorePlatformState(platform) {
     document.querySelectorAll("#tab-discover [id^='subtab-']").forEach(el => el.classList.add("d-none"));
     document.getElementById("subtab-" + state.subtab).classList.remove("d-none");
 
+    // 节目与节目专辑搜索仅对 QQ 音乐开放，保留 QQ 平台自己的搜索状态
+    document.querySelector('#search-type option[value="program"]').hidden = platform !== "qq";
+    document.querySelector('#search-type option[value="program_album"]').hidden = platform !== "qq";
+    if (platform !== "qq" && ["program", "program_album"].includes(_searchState.type)) {
+        _searchState.type = "song";
+    }
+
     // 同步搜索框与表格显示状态
     document.getElementById("search-type").value = _searchState.type;
     document.getElementById("search-keyword").value = _searchState.keyword;
-    const isAlbum = _searchState.type === "album";
-    document.getElementById("search-result-song").classList.toggle("d-none", isAlbum);
-    document.getElementById("search-result-album").classList.toggle("d-none", !isAlbum);
-    document.getElementById("btn-search-download-all").style.display = isAlbum ? "none" : "";
+    _setSearchResultView(_searchState.type);
 
     // 加载当前子标签内容
     if (state.subtab === "toplists") {
@@ -469,7 +473,7 @@ loadDefaultPlaylistLimit();
 // 搜索状态：当前关键词、类型、每页数量、页码
 let _searchState = {
     keyword: "",
-    type: "song",     // song | artist | album
+    type: "song",     // song | artist | album | program | program_album
     limit: 50,
     page: 1,
 };
@@ -502,16 +506,14 @@ document.getElementById("search-type").addEventListener("change", function() {
     _searchState.type = this.value;
     _searchState.page = 1;
     // 切换表格显示
-    const isAlbum = this.value === "album";
-    document.getElementById("search-result-song").classList.toggle("d-none", isAlbum);
-    document.getElementById("search-result-album").classList.toggle("d-none", !isAlbum);
-    // "全部下载"按钮仅歌曲模式显示
-    document.getElementById("btn-search-download-all").style.display = isAlbum ? "none" : "";
+    _setSearchResultView(this.value);
     // 重置分页
     updateSearchPagination(1, 0, 0);
     // 清空结果
     document.getElementById("search-tbody-song").innerHTML = '<tr><td colspan="7" class="text-center text-muted">输入关键词后点击搜索</td></tr>';
     document.getElementById("search-tbody-album").innerHTML = '<tr><td colspan="6" class="text-center text-muted">输入关键词后点击搜索</td></tr>';
+    document.getElementById("search-tbody-program").innerHTML = '<tr><td colspan="5" class="text-center text-muted">输入关键词后点击搜索</td></tr>';
+    document.getElementById("search-tbody-program-album").innerHTML = '<tr><td colspan="7" class="text-center text-muted">输入关键词后点击搜索</td></tr>';
 });
 
 // 全部下载（应用排除过滤，仅歌曲模式，下载当前页）
@@ -554,6 +556,18 @@ document.getElementById("btn-search-next").addEventListener("click", () => {
 });
 
 // 加载搜索结果（根据 _searchState.type 渲染不同表格）
+function _setSearchResultView(type) {
+    const isAlbum = type === "album";
+    const isProgram = type === "program";
+    const isProgramAlbum = type === "program_album";
+    document.getElementById("search-result-song").classList.toggle("d-none", isAlbum || isProgram || isProgramAlbum);
+    document.getElementById("search-result-album").classList.toggle("d-none", !isAlbum);
+    document.getElementById("search-result-program").classList.toggle("d-none", !isProgram);
+    document.getElementById("search-result-program-album").classList.toggle("d-none", !isProgramAlbum);
+    // 批量下载只适用于歌曲搜索
+    document.getElementById("btn-search-download-all").style.display = isAlbum || isProgram || isProgramAlbum ? "none" : "";
+}
+
 async function loadSearchResults() {
     const keyword = _searchState.keyword;
     const type = _searchState.type;
@@ -561,17 +575,19 @@ async function loadSearchResults() {
     const page = _searchState.page;
     const offset = (page - 1) * limit;
     const isAlbum = type === "album";
+    const isProgram = type === "program";
+    const isProgramAlbum = type === "program_album";
 
     // 同步下拉框状态（防止外部调用未同步）
     document.getElementById("search-type").value = type;
-    document.getElementById("search-result-song").classList.toggle("d-none", isAlbum);
-    document.getElementById("search-result-album").classList.toggle("d-none", !isAlbum);
-    document.getElementById("btn-search-download-all").style.display = isAlbum ? "none" : "";
+    _setSearchResultView(type);
 
-    const tbody = document.getElementById(isAlbum ? "search-tbody-album" : "search-tbody-song");
-    const titleEl = document.getElementById(isAlbum ? "search-title-album" : "search-title");
+    const tbodyId = isAlbum ? "search-tbody-album" : isProgram ? "search-tbody-program" : isProgramAlbum ? "search-tbody-program-album" : "search-tbody-song";
+    const titleId = isAlbum ? "search-title-album" : isProgram ? "search-title-program" : isProgramAlbum ? "search-title-program-album" : "search-title";
+    const tbody = document.getElementById(tbodyId);
+    const titleEl = document.getElementById(titleId);
     titleEl.textContent = `搜索结果: ${keyword}（第 ${page} 页）`;
-    const colspan = isAlbum ? 6 : 7;
+    const colspan = isProgramAlbum ? 7 : isAlbum ? 6 : isProgram ? 5 : 7;
     tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center text-muted"><span class="loading-spinner"></span> 搜索中...</td></tr>`;
 
     try {
@@ -614,6 +630,45 @@ async function loadSearchResults() {
                 `;
             }).join("");
             bindAlbumDownload();
+        } else if (isProgram) {
+            tbody.innerHTML = list.map((program, idx) => {
+                const seconds = parseInt(program.duration) || 0;
+                const duration = seconds
+                    ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+                    : "—";
+                return `
+                    <tr>
+                        <td>${(curPage - 1) * limit + idx + 1}</td>
+                        <td>${escapeHtml(program.name)}</td>
+                        <td>${escapeHtml(program.artists || "—")}</td>
+                        <td><small class="text-muted">${escapeHtml(program.album || "—")}</small></td>
+                        <td>${duration}</td>
+                    </tr>
+                `;
+            }).join("");
+        } else if (isProgramAlbum) {
+            tbody.innerHTML = list.map((album, idx) => {
+                const cover = album.cover_url
+                    ? `<img src="${escapeHtml(album.cover_url)}" alt="${escapeHtml(album.name)}" loading="lazy" width="44" height="44" style="object-fit:cover;border-radius:4px">`
+                    : "—";
+                return `
+                    <tr>
+                        <td>${(curPage - 1) * limit + idx + 1}</td>
+                        <td>${cover}</td>
+                        <td>${escapeHtml(album.name)}</td>
+                        <td>${escapeHtml(album.artist || "—")}</td>
+                        <td><small class="text-muted">${escapeHtml(album.description || "—")}</small></td>
+                        <td><small class="text-muted">${escapeHtml(album.publish_time || "—")}</small></td>
+                        <td>
+                            <button class="btn btn-sm btn-success btn-dl-program-album"
+                                data-id="${escapeHtml(album.id)}" data-name="${escapeHtml(album.name)}">
+                                <i class="bi bi-cloud-arrow-down"></i> 下载全集
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join("");
+            bindAlbumDownload(".btn-dl-program-album", "节目专辑");
         } else {
             tbody.innerHTML = list.map((s, idx) => {
                 const feeText = s.fee === 1
@@ -694,23 +749,24 @@ function bindSingleDownload() {
 }
 
 // 专辑下载（下载整张专辑，应用排除过滤）
-function bindAlbumDownload() {
-    document.querySelectorAll(".btn-dl-album").forEach(el => {
+function bindAlbumDownload(buttonSelector = ".btn-dl-album", itemType = "专辑") {
+    document.querySelectorAll(buttonSelector).forEach(el => {
         el.addEventListener("click", async function() {
             if (this.disabled) return;
             const albumId = this.dataset.id;
             const albumName = this.dataset.name;
-            if (!confirm(`确定下载专辑「${albumName}」内的全部歌曲吗？\n（将应用排除关键字过滤）`)) return;
+            const contents = itemType === "节目专辑" ? "全部节目" : "全部歌曲";
+            if (!confirm(`确定下载${itemType}「${albumName}」内的${contents}吗？\n（将应用排除关键字过滤）`)) return;
             this.disabled = true;
             const originalHtml = this.innerHTML;
             this.innerHTML = '<span class="loading-spinner"></span> 下载中...';
             try {
                 const data = await api("/api/discover/album-download", {
                     method: "POST",
-                    body: JSON.stringify({ album_id: albumId, album_name: albumName, platform: _currentPlatform }),
+                    body: JSON.stringify({ album_id: albumId, album_name: albumName, platform: _currentPlatform, album_kind: itemType === "节目专辑" ? "program" : "album" }),
                 });
-                showToast(data.msg, "专辑下载");
-                this.className = "btn btn-sm btn-secondary btn-dl-album";
+                showToast(data.msg, `${itemType}下载`);
+                this.className = `btn btn-sm btn-secondary ${buttonSelector.slice(1)}`;
                 this.innerHTML = '<i class="bi bi-check2"></i> 已入队';
                 this.disabled = true;
             } catch (e) {

@@ -74,9 +74,11 @@ _LEVEL_BY_QUALITY = {
 _URL_RESULT_OK = 0          # 成功
 # 104003=无权限 104004=VKey 获取失败 104013=播放设备受限（均视为取链失败）
 
-# 搜索类型（SearchType IntEnum）：0=歌曲 2=专辑
+# 搜索类型（SearchType IntEnum）：0=歌曲 2=专辑 15=节目专辑 18=节目
 _SEARCH_TYPE_SONG = 0
 _SEARCH_TYPE_ALBUM = 2
+_SEARCH_TYPE_PROGRAM_ALBUM = 15
+_SEARCH_TYPE_PROGRAM = 18
 
 # query_song 批量详情单批上限（避免单请求过大）
 _DETAIL_BATCH_SIZE = 50
@@ -614,6 +616,79 @@ class QqClient:
                 sizes = dict(zip(mids, pool.map(self._probe_album_size, mids)))
             for item in out:
                 item["size"] = sizes.get(item.get("id"), 0)
+        return {"items": out, "total": total}
+
+    def search_programs(self, keyword: str, limit: int = 50, offset: int = 0) -> dict:
+        """搜索 QQ 音乐节目（search_type=18，节目结果位于 song 列表）
+
+        Returns:
+            {"items":[{"id","name","artists","album","duration"}], "total": N}
+        """
+        if not keyword:
+            return {"items": [], "total": 0}
+        page = offset // limit + 1 if limit > 0 else 1
+        result = self._request("/search/search_by_type", params={
+            "keyword": keyword, "search_type": _SEARCH_TYPE_PROGRAM,
+            "num": min(limit, 100), "page": page, "highlight": False,
+        }, timeout=10)
+        programs = result.get("song") or []
+        total = result.get("total_num") or result.get("estimate_sum") or len(programs)
+        out = []
+        for program in programs:
+            if not isinstance(program, dict):
+                continue
+            album = program.get("album")
+            if isinstance(album, dict):
+                album_name = album.get("name") or album.get("title") or ""
+            else:
+                album_name = str(album or "")
+            try:
+                duration = int(program.get("interval") or program.get("duration") or 0)
+            except (TypeError, ValueError):
+                duration = 0
+            artists = _singers_text(program.get("singer")) or program.get("author") or program.get("host") or ""
+            out.append({
+                "id": program.get("mid") or program.get("id"),
+                "name": program.get("name") or program.get("title") or program.get("search_title") or "",
+                "artists": str(artists),
+                "album": album_name,
+                "duration": duration,
+            })
+        return {"items": out, "total": total}
+
+    def search_program_albums(self, keyword: str, limit: int = 50, offset: int = 0) -> dict:
+        """搜索 QQ 音乐节目专辑（search_type=15，结果位于 audio_alum 列表）
+
+        Returns:
+            {"items":[{"id","name","artist","description","publish_time","cover_url"}], "total": N}
+        """
+        if not keyword:
+            return {"items": [], "total": 0}
+        page = offset // limit + 1 if limit > 0 else 1
+        result = self._request("/search/search_by_type", params={
+            "keyword": keyword, "search_type": _SEARCH_TYPE_PROGRAM_ALBUM,
+            "num": min(limit, 100), "page": page, "highlight": False,
+        }, timeout=10)
+        albums = result.get("audio_alum") or []
+        total = result.get("total_num") or result.get("estimate_sum") or len(albums)
+        out = []
+        for album in albums:
+            if not isinstance(album, dict):
+                continue
+            artist = album.get("singer")
+            if isinstance(artist, (list, dict)):
+                artist = _singers_text(artist)
+            cover_url = _fix_img_url(album.get("pic") or album.get("cover") or "")
+            if cover_url.startswith("http://"):
+                cover_url = "https://" + cover_url[7:]
+            out.append({
+                "id": album.get("mid") or album.get("id"),
+                "name": album.get("name") or album.get("title") or "",
+                "artist": str(artist or ""),
+                "description": album.get("description") or "",
+                "publish_time": album.get("time_public") or album.get("publish_date") or "",
+                "cover_url": cover_url,
+            })
         return {"items": out, "total": total}
 
     def _probe_album_size(self, albummid: str) -> int:

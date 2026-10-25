@@ -15,6 +15,7 @@
 - POST   /api/tasks/<pk>/pause    暂停指定下载任务（保留 .part 断点）
 - POST   /api/tasks/<pk>/resume   继续指定下载任务（断点续传）
 - DELETE /api/tasks/<pk>          删除指定下载任务（中止传输并清理临时文件）
+- POST   /api/tasks/delete-all    删除当前全部在途下载任务
 - POST   /api/tasks/pause-all     暂停全部下载任务
 - POST   /api/tasks/resume-all    继续全部下载任务
 - GET    /api/stats               获取统计数据（总览页用）
@@ -805,6 +806,15 @@ def delete_task(pk: int):
     tm = _get_task_manager()
     ok, msg = tm.delete_task(pk)
     return jsonify({"code": 0 if ok else 1, "msg": msg})
+
+
+@api_bp.route("/tasks/delete-all", methods=["POST"])
+def delete_all_tasks():
+    """删除当前全部在途下载任务，不影响下载历史和已完成音乐文件"""
+    tm = _get_task_manager()
+    count = tm.delete_all_tasks()
+    msg = f"已删除 {count} 个下载任务" if count else "没有可删除的下载任务"
+    return jsonify({"code": 0, "data": {"deleted": count}, "msg": msg})
 
 
 @api_bp.route("/tasks/pause-all", methods=["POST"])
@@ -1675,11 +1685,13 @@ def discover_categories():
 
 @api_bp.route("/discover/search", methods=["POST"])
 def discover_search():
-    """搜索歌曲或专辑（展示用，不下载，不应用排除过滤）
+    """搜索歌曲、专辑或 QQ 音乐节目（展示用，不应用排除过滤）
 
-    请求体：{"keyword":"周杰伦", "type":"song|artist|album", "limit":50, "offset":0}
-        - type=song/artist: 搜索单曲（type=1）
-        - type=album: 搜索专辑（type=10）
+    请求体：{"keyword":"周杰伦", "type":"song|artist|album|program|program_album", "limit":50, "offset":0}
+        - type=song/artist: 搜索单曲（type=0）
+        - type=album: 搜索专辑（type=2）
+        - type=program_album: QQ 音乐节目专辑（type=15）
+        - type=program: QQ 音乐节目（type=18）
 
     返回歌曲模式：
         {"code":0, "data":{"items":[{"id","name","artists","album","fee","downloaded"}],
@@ -1692,7 +1704,7 @@ def discover_search():
     keyword = (data.get("keyword") or "").strip()
     platform = _req_platform()
     search_type = (data.get("type") or "song").strip()
-    if search_type not in ("song", "artist", "album"):
+    if search_type not in ("song", "artist", "album", "program", "program_album"):
         search_type = "song"
     limit = _safe_int(data.get("limit", 50), 50, lo=1, hi=100)
     offset = _safe_int(data.get("offset", 0), 0, lo=0)
@@ -1715,6 +1727,40 @@ def discover_search():
                     "page": page,
                     "pages": pages,
                     "type": "album",
+                },
+            })
+        elif search_type == "program":
+            if platform != "qq":
+                return jsonify({"code": 1, "msg": "节目搜索仅支持 QQ 音乐"})
+            res = client.search_programs(keyword, limit=limit, offset=offset)
+            items = res.get("items") or []
+            total = res.get("total", 0)
+            pages = (total + limit - 1) // limit if limit > 0 else 0
+            return jsonify({
+                "code": 0,
+                "data": {
+                    "items": items,
+                    "total": total,
+                    "page": page,
+                    "pages": pages,
+                    "type": "program",
+                },
+            })
+        elif search_type == "program_album":
+            if platform != "qq":
+                return jsonify({"code": 1, "msg": "节目专辑搜索仅支持 QQ 音乐"})
+            res = client.search_program_albums(keyword, limit=limit, offset=offset)
+            items = res.get("items") or []
+            total = res.get("total", 0)
+            pages = (total + limit - 1) // limit if limit > 0 else 0
+            return jsonify({
+                "code": 0,
+                "data": {
+                    "items": items,
+                    "total": total,
+                    "page": page,
+                    "pages": pages,
+                    "type": "program_album",
                 },
             })
         else:
@@ -1788,22 +1834,28 @@ def discover_search_download():
 def discover_album_download():
     """下载专辑内全部歌曲（应用搜索场景的排除过滤）
 
-    请求体：{"album_id":"123" 或 "0041WVfh2vtlJE", "album_name":"范特西", "platform":...}
+    请求体：{"album_id":"123" 或 "0041WVfh2vtlJE", "album_name":"范特西", "platform":..., "album_kind":"album|program"}
     album_id 字符串透传：netease 为数字 ID，QQ 为 albummid（非数字字符串）
     返回：{"code":0, "data":{"enqueued","excluded","skipped","total"}, "msg":"..."}
     """
     data = _json_body()
     album_id = (data.get("album_id") or "").strip() or None
     album_name = (data.get("album_name") or "").strip()
+    album_kind = "program" if data.get("album_kind") == "program" else "album"
+    platform = _req_platform()
     if not album_id:
         return jsonify({"code": 1, "msg": "缺少 album_id"})
+    if album_kind == "program" and platform != "qq":
+        return jsonify({"code": 1, "msg": "节目专辑下载仅支持 QQ 音乐"})
 
     tm = _get_task_manager()
     try:
-        result = tm.download_album(album_id, album_name, platform=_req_platform())
+        result = tm.download_album(album_id, album_name, platform=platform, album_kind=album_kind)
     except ValueError as e:
         return jsonify({"code": 1, "msg": str(e)})
-    msg = (f"专辑共 {result['total']} 首：入队 {result['enqueued']}，排除 {result['excluded']}，"
+    title = "节目专辑共" if album_kind == "program" else "专辑共"
+    unit = "个节目" if album_kind == "program" else "首"
+    msg = (f"{title} {result['total']} {unit}：入队 {result['enqueued']}，排除 {result['excluded']}，"
            f"跳过(已下载/进行中/曾失败) {result['skipped']}")
     return jsonify({"code": 0, "data": result, "msg": msg})
 

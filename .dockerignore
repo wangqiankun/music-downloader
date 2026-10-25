@@ -79,7 +79,6 @@ icon.ico
 # Repo-local docs are not needed in the container
 docs/
 README.md
-version.txt
 
 # Docker / compose meta
 Dockerfile

@@ -2,6 +2,7 @@
 
 let currentPage = 1;
 let currentSubTab = "tasks";
+let _deletingAllTasks = false;
 
 // 子标签页切换
 document.querySelectorAll("#download-tabs .nav-link").forEach(el => {
@@ -103,15 +104,17 @@ async function loadTasks() {
         const tasks = data.data || [];
         const list = document.getElementById("task-list");
         const countBadge = document.getElementById("task-count-badge");
+        const deleteAllButton = document.getElementById("btn-delete-all");
 
         countBadge.textContent = tasks.length;
+        deleteAllButton.disabled = _deletingAllTasks || tasks.length === 0;
 
         // 全局按钮可用性：无"可暂停"任务时禁用暂停全部；有已暂停任务或
         // 处于全局暂停态时启用继续全部（便于清除全局标记）
         const hasRunnable = tasks.some(t => t.status !== "paused");
         const hasPaused = tasks.some(t => t.status === "paused");
-        document.getElementById("btn-pause-all").disabled = !hasRunnable;
-        document.getElementById("btn-resume-all").disabled = !(hasPaused || data.paused_all);
+        document.getElementById("btn-pause-all").disabled = _deletingAllTasks || !hasRunnable;
+        document.getElementById("btn-resume-all").disabled = _deletingAllTasks || !(hasPaused || data.paused_all);
 
         if (tasks.length === 0) {
             list.innerHTML = '<p class="text-muted text-center mb-0">暂无下载任务</p>';
@@ -140,6 +143,14 @@ async function loadTasks() {
             }
             updateTaskItem(el, t);
         });
+
+        // 删除全部期间锁定任务项；保留单条操作自身的忙碌状态
+        list.querySelectorAll(".task-item").forEach(el => {
+            const busy = _deletingAllTasks || el.classList.contains("opacity-50");
+            el.querySelectorAll("button").forEach(button => { button.disabled = busy; });
+        });
+        deleteAllButton.disabled = _deletingAllTasks || tasks.length === 0
+            || Boolean(list.querySelector(".task-item.opacity-50"));
     } catch (e) {
         console.error("加载任务失败:", e);
     } finally {
@@ -416,6 +427,7 @@ document.getElementById("filter-keyword").addEventListener("keypress", e => {
 // 事件委托：任务项由轮询增量创建/销毁，逐个绑定会重复或者丢失；
 // 统一挂在容器上，一次绑定长期有效
 document.getElementById("task-list").addEventListener("click", async e => {
+    if (_deletingAllTasks) return;
     const btn = e.target.closest("[data-action]");
     if (!btn || btn.disabled) return;
     const item = btn.closest(".task-item");
@@ -442,8 +454,33 @@ document.getElementById("task-list").addEventListener("click", async e => {
     }
 });
 
+// 删除当前列表中的全部任务；下载历史和已完成音乐文件不受影响
+document.getElementById("btn-delete-all").addEventListener("click", async function() {
+    if (_deletingAllTasks) return;
+    if (document.querySelector("#task-list .task-item.opacity-50")) return;
+    const count = Number(document.getElementById("task-count-badge").textContent) || 0;
+    if (!count) return;
+    if (!confirm(`确定删除当前全部 ${count} 个下载任务？\n下载中的任务会立即停止；下载历史和已完成音乐文件不会删除。`)) return;
+
+    _deletingAllTasks = true;
+    this.disabled = true;
+    document.getElementById("btn-pause-all").disabled = true;
+    document.getElementById("btn-resume-all").disabled = true;
+    document.querySelectorAll("#task-list .task-item button").forEach(button => { button.disabled = true; });
+    try {
+        const data = await api("/api/tasks/delete-all", { method: "POST", timeout: 120000 });
+        showToast(data.msg, "下载任务");
+    } catch (e) {
+        showToast(e.message, "错误");
+    } finally {
+        _deletingAllTasks = false;
+        await loadTasks();
+    }
+});
+
 // 暂停全部：当前下载中的会立即停止，已下载部分保留（继续时断点续传）
 document.getElementById("btn-pause-all").addEventListener("click", async function() {
+    if (_deletingAllTasks) return;
     if (!confirm("确定暂停全部下载任务？\n当前正在下载的任务会立即停止，已下载部分保留，继续时可断点续传。")) return;
     this.disabled = true;
     try {
@@ -458,6 +495,7 @@ document.getElementById("btn-pause-all").addEventListener("click", async functio
 
 // 继续全部
 document.getElementById("btn-resume-all").addEventListener("click", async function() {
+    if (_deletingAllTasks) return;
     this.disabled = true;
     try {
         const data = await api("/api/tasks/resume-all", { method: "POST" });
