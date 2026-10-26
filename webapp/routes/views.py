@@ -6,11 +6,12 @@
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
-from flask import Blueprint, render_template, redirect, url_for, request, session
+from flask import Blueprint, render_template, redirect, url_for, request, session, current_app
 
 from auth import login_required, admin_required, current_user
-from models import User, db, PLATFORM_NAMES, DEFAULT_ADMIN_PASSWORD
+from models import User, Setting, db, PLATFORM_NAMES, DEFAULT_ADMIN_PASSWORD
 
 views_bp = Blueprint("views", __name__)
 
@@ -219,6 +220,22 @@ def accounts():
 def history():
     """下载历史页"""
     return render_template("history.html", active_page="history", current_user=current_user())
+
+
+@views_bp.route("/metadata")
+@login_required()
+@admin_required
+def metadata():
+    """本地音乐标签整理页（仅管理员）"""
+    root = Path(Setting.get("output_dir", "downloads")).expanduser()
+    if not root.is_absolute():
+        root = Path(current_app.root_path).parent / root
+    return render_template(
+        "metadata.html",
+        active_page="metadata",
+        current_user=current_user(),
+        scan_root=str(root),
+    )
 
 
 @views_bp.route("/settings")

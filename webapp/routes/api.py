@@ -56,6 +56,7 @@ from core.providers.qq.parse_links import parse_qq_playlist_id
 from core.providers import get_provider
 from core.providers.netease import bridge
 from core.providers.qq import bridge as qq_bridge
+from core.library_metadata import SUPPORTED_AUDIO_SUFFIXES, apply_file_metadata, scan_library
 
 api_bp = Blueprint("api", __name__)
 logger = logging.getLogger(__name__)
@@ -255,6 +256,101 @@ def _get_client(platform: str = "netease") -> MusicProvider:
     acc = Account.query.filter_by(platform=platform, enabled=True).order_by(Account.sort_order, Account.id).first()
     cookie = acc.cookie if acc else ""
     return _create_client(cookie=cookie or "", platform=platform)
+
+
+def _metadata_admin_denied():
+    """限制本地目录扫描与标签写入接口仅供管理员使用"""
+    user = current_user()
+    if not user or not user.is_admin:
+        return jsonify({"code": 403, "msg": "仅管理员可以整理音乐文件"}), 403
+    return None
+
+
+def _metadata_scan_root(value: str | None) -> Path:
+    """解析并校验扫描目录；拒绝根目录和系统目录"""
+    if value is not None and not isinstance(value, str):
+        raise ValueError("目录路径必须是文本")
+    raw = (value or "").strip()
+    if not raw:
+        raw = Setting.get("output_dir", "downloads")
+    root = Path(raw).expanduser()
+    if not root.is_absolute():
+        root = Path(current_app.root_path).parent / root
+    root = root.resolve(strict=True)
+    if not root.is_dir() or root == Path("/"):
+        raise ValueError("请选择一个有效的音乐目录")
+    blocked = ("/proc", "/sys", "/dev", "/run", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64")
+    if any(root == Path(item) or Path(item) in root.parents for item in blocked):
+        raise ValueError("不能扫描系统目录")
+    return root
+
+
+@api_bp.route("/metadata/scan", methods=["POST"])
+def scan_metadata_library():
+    """扫描指定目录中的音频标签并关联已有下载记录"""
+    denied = _metadata_admin_denied()
+    if denied:
+        return denied
+    data = _json_body()
+    try:
+        root = _metadata_scan_root(data.get("root"))
+        records = {}
+        for song in Song.query.filter_by(status="success").filter(Song.file_path != "").all():
+            try:
+                song_path = Path(song.file_path).expanduser()
+                if not song_path.is_absolute():
+                    song_path = Path(current_app.root_path).parent / song_path
+                records[str(song_path.resolve())] = song
+            except (OSError, RuntimeError):
+                continue
+        items, truncated = scan_library(root, records)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return jsonify({"code": 1, "msg": f"扫描失败：{exc}"}), 400
+    return jsonify({
+        "code": 0,
+        "data": {
+            "root": str(root),
+            "items": items,
+            "truncated": truncated,
+            "supported_formats": sorted(SUPPORTED_AUDIO_SUFFIXES),
+        },
+    })
+
+
+@api_bp.route("/metadata/apply", methods=["POST"])
+def apply_metadata_to_file():
+    """按用户确认的歌曲来源写回一个音频文件的标签"""
+    denied = _metadata_admin_denied()
+    if denied:
+        return denied
+    data = _json_body()
+    platform = (data.get("platform") or "").strip().lower()
+    song_id = str(data.get("song_id") or "").strip()
+    relative_path = Path(str(data.get("relative_path") or ""))
+    if platform not in PLATFORMS or not song_id or len(song_id) > 64:
+        return jsonify({"code": 1, "msg": "歌曲来源无效，请重新匹配"}), 400
+    if relative_path.is_absolute() or ".." in relative_path.parts or not relative_path.parts:
+        return jsonify({"code": 1, "msg": "文件路径无效，请重新扫描目录"}), 400
+    try:
+        root = _metadata_scan_root(data.get("root"))
+        path = (root / relative_path).resolve(strict=True)
+        path.relative_to(root)
+        if not path.is_file() or path.suffix.lower() not in SUPPORTED_AUDIO_SUFFIXES:
+            raise ValueError("目标文件不存在或格式暂不支持")
+        client = _get_client(platform)
+        details = client.get_song_detail([song_id])
+        source = details[0] if details and isinstance(details[0], dict) else {}
+        fallback = data.get("fallback") if isinstance(data.get("fallback"), dict) else {}
+        for field in ("title", "artist", "album", "year", "track_no", "disc_no", "albumartist", "cover_url"):
+            if not source.get(field):
+                source[field] = fallback.get(field) or ""
+        source["fallback"] = fallback
+        tags = apply_file_metadata(path, source, overwrite=data.get("overwrite") is True)
+    except Exception as exc:
+        logger.warning("写入音乐标签失败 %s (%s)", relative_path.name, type(exc).__name__)
+        message = str(exc) if isinstance(exc, (ValueError, FileNotFoundError, PermissionError)) else "获取来源信息或写入标签失败"
+        return jsonify({"code": 1, "msg": message or "标签写入失败"}), 400
+    return jsonify({"code": 0, "data": {"tags": tags}})
 
 
 def _req_platform() -> str:

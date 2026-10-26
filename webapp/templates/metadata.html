@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}标签整理 - Deen音乐下载器{% endblock %}
+{% block head %}
+<link href="{{ static_v('css/metadata.css') }}" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<main id="metadata-page" class="metadata-page">
+    <section class="metadata-intro" aria-labelledby="metadata-title">
+        <div class="metadata-intro-copy">
+            <p class="metadata-eyebrow"><span class="metadata-pulse"></span> MUSIC LIBRARY · TAG REPAIR</p>
+            <h1 id="metadata-title">把音乐信息<br><em>写回每一首歌。</em></h1>
+            <p class="metadata-lead">扫描本地曲库，按歌曲来源 ID 精确补全；其他文件可搜索候选并确认后写入标签和封面。</p>
+        </div>
+        <div class="metadata-record" aria-hidden="true">
+            <div class="metadata-record-groove"><span></span></div>
+            <div class="metadata-record-label"><i class="bi bi-music-note-beamed"></i></div>
+            <span class="metadata-record-caption">SIDE A / LIBRARY</span>
+        </div>
+    </section>
+
+    <section class="metadata-workbench" aria-label="音乐目录整理工具">
+        <div class="metadata-toolbar">
+            <div class="metadata-folder-field">
+                <label for="metadata-root">扫描目录 <span>需是容器内可访问的路径</span></label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-folder2-open"></i></span>
+                    <input id="metadata-root" class="form-control" type="text" value="{{ scan_root }}" autocomplete="off">
+                    <button id="metadata-scan" class="btn btn-dark" type="button"><i class="bi bi-arrow-repeat me-1"></i>扫描曲库</button>
+                </div>
+            </div>
+            <div class="metadata-mode-field">
+                <label class="metadata-toggle" for="metadata-overwrite">
+                    <input id="metadata-overwrite" type="checkbox">
+                    <span class="metadata-toggle-track"><span></span></span>
+                    <span><strong>覆盖已有标签</strong><small>默认只补空白字段</small></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="metadata-summary" id="metadata-summary" aria-live="polite">
+            <div class="metadata-summary-item"><span class="metadata-summary-icon"><i class="bi bi-music-note-list"></i></span><div><strong id="metadata-total">—</strong><small>音频文件</small></div></div>
+            <div class="metadata-summary-item"><span class="metadata-summary-icon metadata-summary-warn"><i class="bi bi-exclamation-circle"></i></span><div><strong id="metadata-incomplete">—</strong><small>待补全</small></div></div>
+            <div class="metadata-summary-item"><span class="metadata-summary-icon metadata-summary-match"><i class="bi bi-link-45deg"></i></span><div><strong id="metadata-linked">—</strong><small>来源可精确匹配</small></div></div>
+            <div class="metadata-summary-actions">
+                <span id="metadata-progress" class="metadata-progress-label"></span>
+                <button id="metadata-apply-selected" class="btn btn-primary" type="button" disabled>
+                    <i class="bi bi-magic me-1"></i>写入已匹配项 <span id="metadata-selected-count" class="metadata-action-count">0</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="metadata-table-header">
+            <div>
+                <h2>曲库清单</h2>
+                <p>支持 MP3、FLAC、OGG 与 Opus。匹配来源后才会写入，不会重新下载或转码音频。</p>
+            </div>
+            <label class="metadata-filter-label" for="metadata-filter">显示
+                <select id="metadata-filter" class="form-select form-select-sm">
+                    <option value="all">全部文件</option>
+                    <option value="missing">需要补全</option>
+                    <option value="matched">来源已匹配</option>
+                </select>
+            </label>
+        </div>
+
+        <div id="metadata-truncated" class="alert alert-warning d-none" role="status"></div>
+        <div id="metadata-empty" class="metadata-empty">
+            <div class="metadata-empty-mark"><i class="bi bi-vinyl"></i></div>
+            <strong>扫描你的音乐目录</strong>
+            <p>已下载的歌曲和其他来源的音乐都可以整理。对外部文件，先搜索并确认正确版本。</p>
+        </div>
+        <div class="table-responsive metadata-table-wrap d-none" id="metadata-table-wrap">
+            <table class="table metadata-table">
+                <thead><tr><th class="metadata-check-col"><span class="visually-hidden">选择</span></th><th>文件 / 当前标签</th><th>标签状态</th><th>匹配来源</th><th class="text-end">操作</th></tr></thead>
+                <tbody id="metadata-rows"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div class="modal fade" id="metadata-search-modal" tabindex="-1" aria-labelledby="metadata-search-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content metadata-modal">
+            <div class="modal-header">
+                <div><p class="metadata-eyebrow">MATCH THE RECORD</p><h2 class="modal-title" id="metadata-search-title">搜索并确认歌曲</h2></div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="metadata-search-form">
+                    <select id="metadata-platform" class="form-select" aria-label="音乐平台">
+                        <option value="netease">网易云</option><option value="qq">QQ音乐</option><option value="kugou">酷狗</option>
+                    </select>
+                    <input id="metadata-query" class="form-control" type="search" placeholder="歌曲名 / 歌手" aria-label="搜索关键词">
+                    <button id="metadata-search-button" class="btn btn-dark" type="button">搜索候选</button>
+                </div>
+                <div id="metadata-candidates" class="metadata-candidates" aria-live="polite">
+                    <p class="metadata-candidates-empty">搜索后请核对歌名、歌手和专辑，再选择正确版本。</p>
+                </div>
+            </div>
+            <div class="modal-footer"><span>选择候选后会回到清单；确认写入时才会修改文件。</span><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ static_v('js/metadata.js') }}"></script>
+{% endblock %}

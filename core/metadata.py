@@ -51,11 +51,12 @@ def write_mp3_tags(
     cover_url: str = "",
     lyric: str | None = "",
     tlyric: str | None = "",
-    track_no: int = 0,
-    disc_no: int = 0,
+    track_no: int | str = 0,
+    disc_no: int | str = 0,
     albumartist: str = "",
     write_lyric: bool = True,
     write_meta: bool = True,
+    preserve_cover: bool = False,
 ) -> bool:
     """写入 MP3 ID3 标签（ID3v2.4：年份用 TDRC，音轨/碟号用 TRCK/TPOS）
 
@@ -76,23 +77,26 @@ def write_mp3_tags(
         # delall 清帧与重建必须在同一门控内：只清不建会把已有元数据抹掉
         # （与 D1「只删 USLT 不重建」同型坑）。
         if write_meta:
-            for key in ("TIT2", "TPE1", "TALB", "TDRC", "TYER", "APIC",
+            cover_exists = bool(tags.getall("APIC"))
+            for key in ("TIT2", "TPE1", "TALB", "TDRC", "TYER",
                         "TRCK", "TPOS", "TPE2"):
                 tags.delall(key)
+            if not preserve_cover:
+                tags.delall("APIC")
 
             tags.add(TIT2(encoding=3, text=title))
             tags.add(TPE1(encoding=3, text=artist))
             tags.add(TALB(encoding=3, text=album))
             if year:
                 tags.add(TDRC(encoding=3, text=year))
-            if track_no > 0:
+            if str(track_no or "").strip() not in ("", "0"):
                 tags.add(TRCK(encoding=3, text=str(track_no)))
-            if disc_no > 0:
+            if str(disc_no or "").strip() not in ("", "0"):
                 tags.add(TPOS(encoding=3, text=str(disc_no)))
             if albumartist:
                 tags.add(TPE2(encoding=3, text=albumartist))
 
-            cover = _download_cover(cover_url)
+            cover = _download_cover(cover_url) if (not preserve_cover or not cover_exists) else None
             if cover:
                 mime = _guess_cover_mime(cover)
                 tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover",
@@ -133,11 +137,12 @@ def write_flac_tags(
     cover_url: str = "",
     lyric: str | None = "",
     tlyric: str | None = "",
-    track_no: int = 0,
-    disc_no: int = 0,
+    track_no: int | str = 0,
+    disc_no: int | str = 0,
     albumartist: str = "",
     write_lyric: bool = True,
     write_meta: bool = True,
+    preserve_cover: bool = False,
 ) -> bool:
     """写入 FLAC Vorbis Comment 标签
 
@@ -159,11 +164,11 @@ def write_flac_tags(
                 audio["date"] = year
             else:
                 audio.pop("date", None)
-            if track_no > 0:
+            if str(track_no or "").strip() not in ("", "0"):
                 audio["tracknumber"] = str(track_no)
             else:
                 audio.pop("tracknumber", None)
-            if disc_no > 0:
+            if str(disc_no or "").strip() not in ("", "0"):
                 audio["discnumber"] = str(disc_no)
             else:
                 audio.pop("discnumber", None)
@@ -182,8 +187,10 @@ def write_flac_tags(
 
         # write_meta=False ⇒ 封面完全不碰（不下载、不清旧、不覆盖）
         if write_meta:
-            audio.clear_pictures()
-            cover = _download_cover(cover_url)
+            cover_exists = bool(audio.pictures)
+            if not preserve_cover:
+                audio.clear_pictures()
+            cover = _download_cover(cover_url) if (not preserve_cover or not cover_exists) else None
             if cover:
                 pic = Picture()
                 pic.type = 3
@@ -208,11 +215,12 @@ def write_ogg_tags(
     cover_url: str = "",
     lyric: str | None = "",
     tlyric: str | None = "",
-    track_no: int = 0,
-    disc_no: int = 0,
+    track_no: int | str = 0,
+    disc_no: int | str = 0,
     albumartist: str = "",
     write_lyric: bool = True,
     write_meta: bool = True,
+    preserve_cover: bool = False,
 ) -> bool:
     """写入 OGG（Vorbis / Opus）Vorbis Comment 标签
 
@@ -234,6 +242,7 @@ def write_ogg_tags(
             return False
         # write_meta=False ⇒ 非歌词字段完全不碰（不覆盖、不 pop 清理）
         if write_meta:
+            cover_exists = bool(audio.get("metadata_block_picture") or audio.get("coverart"))
             audio["title"] = title
             audio["artist"] = artist
             audio["album"] = album
@@ -241,11 +250,11 @@ def write_ogg_tags(
                 audio["date"] = year
             else:
                 audio.pop("date", None)
-            if track_no > 0:
+            if str(track_no or "").strip() not in ("", "0"):
                 audio["tracknumber"] = str(track_no)
             else:
                 audio.pop("tracknumber", None)
-            if disc_no > 0:
+            if str(disc_no or "").strip() not in ("", "0"):
                 audio["discnumber"] = str(disc_no)
             else:
                 audio.pop("discnumber", None)
@@ -265,8 +274,10 @@ def write_ogg_tags(
         # 清封面（等价于 FLAC 的 clear_pictures）。
         # write_meta=False ⇒ 封面完全不碰：pop 必须与重建同门，否则清了不建
         if write_meta:
-            audio.pop("metadata_block_picture", None)
-            cover = _download_cover(cover_url)
+            if not preserve_cover:
+                audio.pop("metadata_block_picture", None)
+                audio.pop("coverart", None)
+            cover = _download_cover(cover_url) if (not preserve_cover or not cover_exists) else None
             if cover:
                 pic = Picture()
                 pic.type = 3
@@ -285,7 +296,8 @@ def write_ogg_tags(
 
 
 def write_tags(file_path: Path, meta: dict,
-               write_lyric: bool = True, write_meta: bool = True) -> bool:
+               write_lyric: bool = True, write_meta: bool = True,
+               preserve_cover: bool = False) -> bool:
     """根据扩展名自动选择写入器
 
     入口归一：meta 字段可能为 None（上游「键存在值为 null」，dict.get 默认值
@@ -305,12 +317,13 @@ def write_tags(file_path: Path, meta: dict,
         cover_url=str(meta.get("cover_url") or ""),
         lyric=str(meta.get("lyric") or ""),
         tlyric=str(meta.get("tlyric") or ""),
-        track_no=_as_int(meta.get("track_no")),
-        disc_no=_as_int(meta.get("disc_no")),
+        track_no=_as_track(meta.get("track_no")),
+        disc_no=_as_track(meta.get("disc_no")),
         albumartist=str(meta.get("albumartist") or ""),
     )
     common["write_lyric"] = write_lyric
     common["write_meta"] = write_meta
+    common["preserve_cover"] = preserve_cover
 
     if ext == ".mp3":
         return write_mp3_tags(file_path, **common)
@@ -318,13 +331,21 @@ def write_tags(file_path: Path, meta: dict,
         return write_flac_tags(file_path, **common)
     if ext == ".ogg":
         return write_ogg_tags(file_path, **common)
+    if ext == ".opus":
+        return write_ogg_tags(file_path, **common)
     logger.warning("不支持的格式，跳过元数据写入: %s", ext)
     return False
 
 
-def _as_int(value) -> int:
-    """宽容整型转换（None/脏数据 → 0，0=不写入该字段）"""
+def _as_track(value) -> int | str:
+    """保留音轨号的总曲目部分（例如 3/12），同时兼容普通整数"""
     try:
-        return int(value)
+        number = int(value)
+        return number if number > 0 else 0
     except (TypeError, ValueError):
+        raw = str(value or "").strip()
+        parts = raw.split("/")
+        if len(parts) <= 2 and parts and all(part.isdigit() for part in parts) \
+                and int(parts[0]) > 0:
+            return raw
         return 0

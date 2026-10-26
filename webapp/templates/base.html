@@ -7,6 +7,7 @@
     <link href="{{ url_for('static', filename='vendor/bootstrap/5.3.2/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='vendor/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
+    {% block head %}{% endblock %}
     <script>
         // 网关根前缀（统一网关模式下为 /app/deen-music-downloader，普通模式为空串）。
         // app.js 的 api() 用它拼接所有相对请求；模板内链接统一用 url_for，无需该变量。
@@ -46,6 +47,13 @@
                             <i class="bi bi-download"></i> 下载
                         </a>
                     </li>
+                    {% if current_user and current_user.is_admin %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if active_page == 'metadata' %}active{% endif %}" href="{{ url_for('views.metadata') }}">
+                            <i class="bi bi-tags"></i> 标签整理
+                        </a>
+                    </li>
+                    {% endif %}
                     <li class="nav-item">
                         <a class="nav-link {% if active_page == 'settings' %}active{% endif %}" href="{{ url_for('views.settings') }}">
                             <i class="bi bi-gear"></i> 设置
