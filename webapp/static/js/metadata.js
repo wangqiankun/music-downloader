@@ -218,7 +218,7 @@
         if (running) return;
         const allTargets = items.map((item, index) => ({ item, index }))
             .filter(({ item }) => item.selected && !currentSource(item) && !item.read_error);
-        const targets = allTargets.slice(0, 50);
+        const targets = allTargets.slice(0, 500);
         if (!targets.length) return;
 
         const selectedMode = batchPlatformInput.value;
