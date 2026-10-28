@@ -46,6 +46,10 @@
                 <select id="metadata-batch-platform" class="form-select form-select-sm metadata-batch-platform" aria-label="批量匹配渠道">
                     <option value="netease">网易云</option><option value="qq">QQ音乐歌曲</option><option value="qq_program">QQ音乐节目</option><option value="kugou">酷狗</option><option value="ximalaya" selected>喜马拉雅声音</option>
                 </select>
+                <label class="metadata-batch-limit-label" for="metadata-batch-limit">每轮
+                    <input id="metadata-batch-limit" class="form-control form-control-sm metadata-batch-limit" type="number" min="1" max="500" step="1" value="50" inputmode="numeric" aria-label="每轮匹配数量，1到500首">
+                    首
+                </label>
                 <button id="metadata-select-unmatched" class="btn btn-outline-secondary" type="button" disabled>
                     <i class="bi bi-check2-square me-1"></i>选择当前未匹配项
                 </button>
@@ -61,7 +65,7 @@
         <div class="metadata-table-header">
             <div>
                 <h2>曲库清单</h2>
-                <p>支持 MP3、FLAC、OGG 与 Opus。批量匹配每轮最多 500 首，先选首个候选供核对；点击写入后才会修改标签。</p>
+                <p>支持 MP3、FLAC、OGG 与 Opus。批量匹配默认每轮 50 首，可设置 1–500 首；先选首个候选供核对，点击写入后才会修改标签。</p>
             </div>
             <label class="metadata-filter-label" for="metadata-filter">显示
                 <select id="metadata-filter" class="form-select form-select-sm">

@@ -6,6 +6,7 @@
     const matchButton = document.getElementById("metadata-match-selected");
     const selectUnmatchedButton = document.getElementById("metadata-select-unmatched");
     const batchPlatformInput = document.getElementById("metadata-batch-platform");
+    const batchLimitInput = document.getElementById("metadata-batch-limit");
     const overwriteInput = document.getElementById("metadata-overwrite");
     const filterInput = document.getElementById("metadata-filter");
     const rowsEl = document.getElementById("metadata-rows");
@@ -93,6 +94,7 @@
         matchButton.disabled = running || selectedUnmatchedCount === 0;
         selectUnmatchedButton.disabled = running || visibleUnmatchedCount === 0;
         batchPlatformInput.disabled = running;
+        batchLimitInput.disabled = running;
         filterInput.disabled = running;
         emptyEl.classList.toggle("d-none", total > 0);
         tableWrap.classList.toggle("d-none", total === 0);
@@ -218,7 +220,14 @@
         if (running) return;
         const allTargets = items.map((item, index) => ({ item, index }))
             .filter(({ item }) => item.selected && !currentSource(item) && !item.read_error);
-        const targets = allTargets.slice(0, 500);
+        const batchLimit = Number(batchLimitInput.value);
+        // 每轮数量只能在 1 到 500 之间，避免超过界面允许的上限。
+        if (!Number.isInteger(batchLimit) || batchLimit < 1 || batchLimit > 500) {
+            showToast("每轮匹配数量需设置为 1–500", "数量无效");
+            batchLimitInput.focus();
+            return;
+        }
+        const targets = allTargets.slice(0, batchLimit);
         if (!targets.length) return;
 
         const selectedMode = batchPlatformInput.value;
