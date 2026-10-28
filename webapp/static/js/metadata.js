@@ -16,7 +16,7 @@
     let running = false;
 
     const labels = { title: "标题", artist: "歌手", album: "专辑", cover: "封面" };
-    const platformNames = { netease: "网易云", qq: "QQ音乐", kugou: "酷狗" };
+    const platformNames = { netease: "网易云", qq: "QQ音乐", kugou: "酷狗", ximalaya: "喜马拉雅" };
 
     // 按当前筛选条件生成曲目行，文本内容统一转义后插入页面。
     function formatMissing(item) {
@@ -34,7 +34,7 @@
         const source = currentSource(item);
         if (!source) return '<span class="text-muted">尚未匹配</span>';
         const type = item.selectedSource ? "已确认候选" : "下载记录精确匹配";
-        const sourceKind = source.source_type === "program" ? " · 节目" : "";
+        const sourceKind = source.source_type === "program" ? " · 节目" : source.source_type === "ximalaya_track" ? " · 声音" : "";
         return `<strong>${escapeHtml(platformNames[source.platform] || source.platform)}${sourceKind} · ${escapeHtml(type)}</strong><small>${escapeHtml(source.name || source.song_id || "")}${source.artists ? " / " + escapeHtml(source.artists) : ""}</small>`;
     }
 
@@ -139,12 +139,13 @@
     async function searchCandidates() {
         const keyword = document.getElementById("metadata-query").value.trim();
         const selectedMode = document.getElementById("metadata-platform").value;
-        // QQ 节目沿用 QQ 平台接口，但标签写入时只用节目搜索返回的数据。
+        // QQ 节目和喜马拉雅声音使用独立来源类型，避免进入歌曲详情接口。
         const platform = selectedMode === "qq_program" ? "qq" : selectedMode;
-        const sourceType = selectedMode === "qq_program" ? "program" : "song";
+        const searchType = selectedMode === "qq_program" ? "program" : "song";
+        const sourceType = selectedMode === "qq_program" ? "program" : selectedMode === "ximalaya" ? "ximalaya_track" : "song";
         const target = document.getElementById("metadata-candidates");
         if (!keyword) {
-            showToast("输入歌曲或节目名 / 作者后再搜索");
+            showToast("输入歌曲、节目或声音名 / 作者后再搜索");
             return;
         }
         target.innerHTML = '<p class="metadata-candidates-empty"><span class="loading-spinner"></span> 正在搜索候选…</p>';
@@ -152,7 +153,7 @@
             const response = await api("/api/discover/search", {
                 method: "POST",
                 timeout: 30000,
-                body: JSON.stringify({ keyword, platform, type: sourceType, limit: 15, offset: 0 }),
+                body: JSON.stringify({ keyword, platform, type: searchType, limit: 15, offset: 0 }),
             });
             const candidates = (response.data.items || []).filter(candidate => candidate.id);
             if (!candidates.length) {
@@ -160,7 +161,7 @@
                 return;
             }
             target.innerHTML = candidates.map((candidate, index) => `<article class="metadata-candidate">
-                <div><strong>${escapeHtml(candidate.name || (sourceType === "program" ? "未知节目" : "未知歌曲"))}</strong><small>${escapeHtml(candidate.artists || "未知作者")} · ${escapeHtml(candidate.album || "未知专辑")}</small></div>
+                <div><strong>${escapeHtml(candidate.name || (sourceType === "program" ? "未知节目" : sourceType === "ximalaya_track" ? "未知声音" : "未知歌曲"))}</strong><small>${escapeHtml(candidate.artists || "未知作者")} · ${escapeHtml(candidate.album || "未知专辑")}</small></div>
                 <button class="btn" type="button" data-candidate="${index}">选这个</button>
             </article>`).join("");
             target.querySelectorAll("[data-candidate]").forEach(button => {
@@ -181,7 +182,7 @@
                     item.error = "";
                     searchModal.hide();
                     render();
-                    showToast(`已匹配：${candidate.name || (sourceType === "program" ? "节目" : "歌曲")}`, "候选已确认");
+                    showToast(`已匹配：${candidate.name || (sourceType === "program" ? "节目" : sourceType === "ximalaya_track" ? "声音" : "歌曲")}`, "候选已确认");
                 });
             });
         } catch (error) {

@@ -57,6 +57,7 @@ from core.providers import get_provider
 from core.providers.netease import bridge
 from core.providers.qq import bridge as qq_bridge
 from core.library_metadata import SUPPORTED_AUDIO_SUFFIXES, apply_file_metadata, scan_library
+from core.providers.ximalaya.client import XimalayaClient
 
 api_bp = Blueprint("api", __name__)
 logger = logging.getLogger(__name__)
@@ -328,8 +329,11 @@ def apply_metadata_to_file():
     source_type = (data.get("source_type") or "song").strip().lower()
     song_id = str(data.get("song_id") or "").strip()
     relative_path = Path(str(data.get("relative_path") or ""))
-    if platform not in PLATFORMS or source_type not in ("song", "program") \
+    if (platform not in PLATFORMS and platform != "ximalaya") \
+            or source_type not in ("song", "program", "ximalaya_track") \
             or (source_type == "program" and platform != "qq") \
+            or (platform == "ximalaya" and source_type != "ximalaya_track") \
+            or (platform != "ximalaya" and source_type == "ximalaya_track") \
             or not song_id or len(song_id) > 64:
         return jsonify({"code": 1, "msg": "来源无效，请重新匹配"}), 400
     if relative_path.is_absolute() or ".." in relative_path.parts or not relative_path.parts:
@@ -340,8 +344,8 @@ def apply_metadata_to_file():
         path.relative_to(root)
         if not path.is_file() or path.suffix.lower() not in SUPPORTED_AUDIO_SUFFIXES:
             raise ValueError("目标文件不存在或格式暂不支持")
-        # QQ 节目 ID 不属于歌曲 MID；节目候选已提供可用标签，不能调用歌曲详情接口。
-        if source_type == "program":
+        # QQ 节目和喜马拉雅声音候选都已带可写入的元数据，不调用歌曲详情接口。
+        if source_type in ("program", "ximalaya_track"):
             source = {}
         else:
             client = _get_client(platform)
@@ -1788,13 +1792,14 @@ def discover_categories():
 
 @api_bp.route("/discover/search", methods=["POST"])
 def discover_search():
-    """搜索歌曲、专辑或 QQ 音乐节目（展示用，不应用排除过滤）
+    """搜索歌曲、专辑、QQ 节目或喜马拉雅声音（展示用，不应用排除过滤）
 
     请求体：{"keyword":"周杰伦", "type":"song|artist|album|program|program_album", "limit":50, "offset":0}
         - type=song/artist: 搜索单曲（type=0）
         - type=album: 搜索专辑（type=2）
         - type=program_album: QQ 音乐节目专辑（type=15）
         - type=program: QQ 音乐节目（type=18）
+        - platform=ximalaya 且 type=song: 搜索喜马拉雅声音
 
     返回歌曲模式：
         {"code":0, "data":{"items":[{"id","name","artists","album","fee","downloaded"}],
@@ -1805,7 +1810,8 @@ def discover_search():
     """
     data = _json_body()
     keyword = (data.get("keyword") or "").strip()
-    platform = _req_platform()
+    requested_platform = (data.get("platform") or "netease").strip().lower()
+    platform = requested_platform if requested_platform == "ximalaya" else _req_platform()
     search_type = (data.get("type") or "song").strip()
     if search_type not in ("song", "artist", "album", "program", "program_album"):
         search_type = "song"
@@ -1816,6 +1822,25 @@ def discover_search():
         return jsonify({"code": 1, "msg": "请输入搜索关键词"})
 
     try:
+        if platform == "ximalaya":
+            if search_type != "song":
+                return jsonify({"code": 1, "msg": "喜马拉雅当前支持声音搜索"})
+            ximalaya_limit = min(limit, 50)
+            ximalaya_page = offset // ximalaya_limit + 1
+            res = XimalayaClient().search_tracks(keyword, limit=ximalaya_limit, page=ximalaya_page)
+            items = res.get("items") or []
+            total = res.get("total", 0)
+            pages = (total + ximalaya_limit - 1) // ximalaya_limit
+            return jsonify({
+                "code": 0,
+                "data": {
+                    "items": items,
+                    "total": total,
+                    "page": ximalaya_page,
+                    "pages": pages,
+                    "type": "song",
+                },
+            })
         client = _get_client(platform)
         if search_type == "album":
             res = client.search_albums(keyword, limit=limit, offset=offset)
