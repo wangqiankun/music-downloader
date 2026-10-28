@@ -3,6 +3,9 @@
     const rootInput = document.getElementById("metadata-root");
     const scanButton = document.getElementById("metadata-scan");
     const applyButton = document.getElementById("metadata-apply-selected");
+    const matchButton = document.getElementById("metadata-match-selected");
+    const selectUnmatchedButton = document.getElementById("metadata-select-unmatched");
+    const batchPlatformInput = document.getElementById("metadata-batch-platform");
     const overwriteInput = document.getElementById("metadata-overwrite");
     const filterInput = document.getElementById("metadata-filter");
     const rowsEl = document.getElementById("metadata-rows");
@@ -33,7 +36,7 @@
     function sourceText(item) {
         const source = currentSource(item);
         if (!source) return '<span class="text-muted">尚未匹配</span>';
-        const type = item.selectedSource ? "已确认候选" : "下载记录精确匹配";
+        const type = source.match_method === "batch" ? "批量候选 · 请核对" : item.selectedSource ? "已确认候选" : "下载记录精确匹配";
         const sourceKind = source.source_type === "program" ? " · 节目" : source.source_type === "ximalaya_track" ? " · 声音" : "";
         return `<strong>${escapeHtml(platformNames[source.platform] || source.platform)}${sourceKind} · ${escapeHtml(type)}</strong><small>${escapeHtml(source.name || source.song_id || "")}${source.artists ? " / " + escapeHtml(source.artists) : ""}</small>`;
     }
@@ -46,7 +49,7 @@
         const action = currentSource(item)
             ? `<button class="btn metadata-action-btn" data-action="apply" data-index="${index}" ${item.read_error || running ? "disabled" : ""}><i class="bi bi-magic me-1"></i>写入标签</button>`
             : `<button class="btn metadata-action-btn search" data-action="search" data-index="${index}" ${item.read_error || running ? "disabled" : ""}><i class="bi bi-search me-1"></i>匹配来源</button>`;
-        const checkable = Boolean(currentSource(item)) && !item.read_error;
+        const checkable = !item.read_error;
         const checked = checkable && Boolean(item.selected);
         let result = "";
         if (item.result === "done") result = '<span class="metadata-row-status done"><i class="bi bi-check-circle"></i> 已写入</span>';
@@ -65,6 +68,7 @@
         const filter = filterInput.value;
         return items.map((item, index) => ({ item, index })).filter(({ item }) => {
             if (filter === "missing" && !item.missing.length) return false;
+            if (filter === "unmatched" && currentSource(item)) return false;
             if (filter === "matched" && !currentSource(item)) return false;
             return true;
         });
@@ -81,8 +85,15 @@
         document.getElementById("metadata-incomplete").textContent = String(incomplete);
         document.getElementById("metadata-linked").textContent = String(linked);
         const selectedCount = items.filter(item => item.selected && currentSource(item) && !item.read_error).length;
+        const selectedUnmatchedCount = items.filter(item => item.selected && !currentSource(item) && !item.read_error).length;
+        const visibleUnmatchedCount = visible.filter(({ item }) => !currentSource(item) && !item.read_error).length;
         document.getElementById("metadata-selected-count").textContent = String(selectedCount);
+        document.getElementById("metadata-match-count").textContent = String(selectedUnmatchedCount);
         applyButton.disabled = running || selectedCount === 0;
+        matchButton.disabled = running || selectedUnmatchedCount === 0;
+        selectUnmatchedButton.disabled = running || visibleUnmatchedCount === 0;
+        batchPlatformInput.disabled = running;
+        filterInput.disabled = running;
         emptyEl.classList.toggle("d-none", total > 0);
         tableWrap.classList.toggle("d-none", total === 0);
         document.getElementById("metadata-truncated").classList.add("d-none");
@@ -190,6 +201,96 @@
         }
     }
 
+    // 选中当前筛选结果里尚未关联来源且可读取的文件。
+    function selectVisibleUnmatched() {
+        let selectedCount = 0;
+        visibleItems().forEach(({ item }) => {
+            if (currentSource(item) || item.read_error) return;
+            item.selected = true;
+            selectedCount += 1;
+        });
+        render();
+        if (selectedCount) showToast(`已选择 ${selectedCount} 个未匹配文件`, "批量匹配");
+    }
+
+    // 对所选未匹配文件逐首搜索，暂取首个候选，用户确认写入前仍可核对或重搜。
+    async function batchMatchSelected() {
+        if (running) return;
+        const allTargets = items.map((item, index) => ({ item, index }))
+            .filter(({ item }) => item.selected && !currentSource(item) && !item.read_error);
+        const targets = allTargets.slice(0, 50);
+        if (!targets.length) return;
+
+        const selectedMode = batchPlatformInput.value;
+        const platform = selectedMode === "qq_program" ? "qq" : selectedMode;
+        const searchType = selectedMode === "qq_program" ? "program" : "song";
+        const sourceType = selectedMode === "qq_program" ? "program" : selectedMode === "ximalaya" ? "ximalaya_track" : "song";
+        const progress = document.getElementById("metadata-progress");
+        let matched = 0;
+        let notFound = 0;
+        let failed = 0;
+        running = true;
+        scanButton.disabled = true;
+        progress.textContent = `0 / ${targets.length}`;
+        render();
+
+        for (let index = 0; index < targets.length; index += 1) {
+            const { item } = targets[index];
+            const title = (item.tags?.title || item.name.replace(/\.[^.]+$/, "")).trim();
+            const keyword = selectedMode === "ximalaya" ? title : (item.search_hint || title);
+            try {
+                const response = await api("/api/discover/search", {
+                    method: "POST",
+                    timeout: 30000,
+                    body: JSON.stringify({ keyword, platform, type: searchType, limit: 15, offset: 0 }),
+                });
+                const candidate = (response.data.items || []).find(result => result.id);
+                if (!candidate) {
+                    item.selected = false;
+                    item.result = "error";
+                    item.error = "没有找到候选";
+                    notFound += 1;
+                } else {
+                    item.selectedSource = {
+                        platform,
+                        source_type: sourceType,
+                        match_method: "batch",
+                        song_id: String(candidate.id),
+                        name: candidate.name || "",
+                        artists: candidate.artists || "",
+                        album: candidate.album || "",
+                        cover_url: candidate.cover_url || "",
+                    };
+                    item.selected = true;
+                    item.result = "";
+                    item.error = "";
+                    matched += 1;
+                }
+            } catch (error) {
+                item.selected = false;
+                item.result = "error";
+                item.error = error.message;
+                failed += 1;
+            }
+            progress.textContent = `${index + 1} / ${targets.length}`;
+        }
+
+        running = false;
+        scanButton.disabled = false;
+        const remaining = allTargets.length - targets.length;
+        if (matched && filterInput.value === "unmatched") filterInput.value = "all";
+        progress.textContent = remaining
+            ? `本轮完成 ${targets.length} 首，剩余 ${remaining} 首待匹配`
+            : `${matched} 首有候选 · ${notFound} 首无结果 · ${failed} 首失败`;
+        render();
+        showToast(
+            remaining
+                ? `本轮匹配 ${matched} 首，剩余 ${remaining} 首可再次批量匹配`
+                : `匹配到 ${matched} 首候选，${notFound} 首无结果，${failed} 首失败；确认后再批量写入`,
+            "批量匹配完成",
+        );
+    }
+
     // 将数据库记录或人工候选统一成接口接受的回退字段。
     function sourceFallback(source) {
         return {
@@ -275,6 +376,8 @@
 
     scanButton.addEventListener("click", scan);
     applyButton.addEventListener("click", applySelected);
+    matchButton.addEventListener("click", batchMatchSelected);
+    selectUnmatchedButton.addEventListener("click", selectVisibleUnmatched);
     filterInput.addEventListener("change", render);
     document.getElementById("metadata-search-button").addEventListener("click", searchCandidates);
     document.getElementById("metadata-query").addEventListener("keydown", event => {

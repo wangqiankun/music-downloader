@@ -175,11 +175,14 @@
 .metadata-summary-item strong, .metadata-summary-item small { display: block; }
 .metadata-summary-item strong { font-size: 1.05rem; line-height: 1.1; }
 .metadata-summary-item small { margin-top: .18rem; color: var(--muted); font-size: .68rem; }
-.metadata-summary-actions { display: flex; align-items: center; gap: .75rem; margin-left: auto; }
+.metadata-summary-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-left: auto; }
 .metadata-progress-label { min-width: 70px; color: var(--muted); font-size: .75rem; text-align: right; }
+.metadata-batch-platform { width: 138px; min-width: 128px; border-color: #dfe5df; font-size: .73rem; }
 .metadata-action-count { min-width: 19px; display: inline-block; margin-left: .18rem; padding: .08rem .28rem; color: #263324; background: rgba(255,255,255,.45); border-radius: 99px; font-size: .7rem; }
 .metadata-summary-actions .btn-primary { background: var(--forest); border-color: var(--forest); }
 .metadata-summary-actions .btn-primary:hover { background: #2d5143; border-color: #2d5143; }
+.metadata-summary-actions .btn-outline-primary { color: #315441; border-color: #c9d9ca; }
+.metadata-summary-actions .btn-outline-primary:hover { color: #fff; background: #355a45; border-color: #355a45; }
 
 .metadata-table-header { display: flex; align-items: end; justify-content: space-between; gap: 1rem; padding: 1.25rem 1.6rem .9rem; }
 .metadata-table-header h2 { margin: 0; font-size: 1.03rem; font-weight: 750; letter-spacing: -.02em; }
@@ -242,7 +245,8 @@
     .metadata-toolbar { grid-template-columns: 1fr; gap: 1rem; padding: 1rem; }
     .metadata-mode-field { justify-self: start; }
     .metadata-summary { gap: .75rem 1rem; padding: .8rem 1rem; }
-    .metadata-summary-actions { width: 100%; justify-content: flex-end; }
+    .metadata-summary-actions { width: 100%; justify-content: flex-start; }
+    .metadata-progress-label { width: 100%; text-align: left; }
     .metadata-table-header { align-items: start; padding: 1rem 1rem .7rem; }
     .metadata-table-header p { max-width: 400px; line-height: 1.5; }
     .metadata-filter-label { flex-direction: column; align-items: start; }

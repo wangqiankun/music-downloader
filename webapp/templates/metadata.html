@@ -43,6 +43,15 @@
             <div class="metadata-summary-item"><span class="metadata-summary-icon metadata-summary-match"><i class="bi bi-link-45deg"></i></span><div><strong id="metadata-linked">—</strong><small>来源可精确匹配</small></div></div>
             <div class="metadata-summary-actions">
                 <span id="metadata-progress" class="metadata-progress-label"></span>
+                <select id="metadata-batch-platform" class="form-select form-select-sm metadata-batch-platform" aria-label="批量匹配渠道">
+                    <option value="netease">网易云</option><option value="qq">QQ音乐歌曲</option><option value="qq_program">QQ音乐节目</option><option value="kugou">酷狗</option><option value="ximalaya" selected>喜马拉雅声音</option>
+                </select>
+                <button id="metadata-select-unmatched" class="btn btn-outline-secondary" type="button" disabled>
+                    <i class="bi bi-check2-square me-1"></i>选择当前未匹配项
+                </button>
+                <button id="metadata-match-selected" class="btn btn-outline-primary" type="button" disabled>
+                    <i class="bi bi-search me-1"></i>批量匹配 <span id="metadata-match-count" class="metadata-action-count">0</span>
+                </button>
                 <button id="metadata-apply-selected" class="btn btn-primary" type="button" disabled>
                     <i class="bi bi-magic me-1"></i>写入已匹配项 <span id="metadata-selected-count" class="metadata-action-count">0</span>
                 </button>
@@ -52,12 +61,13 @@
         <div class="metadata-table-header">
             <div>
                 <h2>曲库清单</h2>
-                <p>支持 MP3、FLAC、OGG 与 Opus。匹配来源后才会写入，不会重新下载或转码音频。</p>
+                <p>支持 MP3、FLAC、OGG 与 Opus。批量匹配每轮最多 50 首，先选首个候选供核对；点击写入后才会修改标签。</p>
             </div>
             <label class="metadata-filter-label" for="metadata-filter">显示
                 <select id="metadata-filter" class="form-select form-select-sm">
                     <option value="all">全部文件</option>
                     <option value="missing">需要补全</option>
+                    <option value="unmatched">来源未匹配</option>
                     <option value="matched">来源已匹配</option>
                 </select>
             </label>
