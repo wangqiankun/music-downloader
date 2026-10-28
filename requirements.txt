@@ -10,4 +10,4 @@ APScheduler>=3.10.4
 
 # 下载与元数据
 requests>=2.31.0
-mutagen>=1.47.0           # ID3/FLAC 标签写入
+mutagen>=1.47.0           # ID3/MP4/FLAC/OGG 标签写入

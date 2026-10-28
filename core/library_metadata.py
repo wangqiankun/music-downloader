@@ -6,10 +6,11 @@ from pathlib import Path
 from mutagen import File as MutagenFile
 from mutagen.flac import FLAC
 from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4
 
 from core.metadata import write_tags
 
-SUPPORTED_AUDIO_SUFFIXES = {".mp3", ".flac", ".ogg", ".opus"}
+SUPPORTED_AUDIO_SUFFIXES = {".mp3", ".m4a", ".flac", ".ogg", ".opus"}
 MAX_SCAN_ITEMS = 5000
 
 
@@ -26,11 +27,13 @@ def _tag_value(tags, key: str, multiple: bool = False) -> str:
 
 
 def _has_cover(path: Path) -> bool:
-    """检测 MP3、FLAC、Vorbis 与 Opus 中是否已有内嵌封面"""
+    """检测 MP3、M4A、FLAC、Vorbis 与 Opus 中是否已有内嵌封面"""
     try:
         audio = MutagenFile(str(path))
         if isinstance(audio, MP3):
             return bool(audio.tags and audio.tags.getall("APIC"))
+        if isinstance(audio, MP4):
+            return bool(audio.tags and audio.tags.get("covr"))
         if isinstance(audio, FLAC):
             return bool(audio.pictures)
         tags = getattr(audio, "tags", None)

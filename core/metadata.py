@@ -2,6 +2,7 @@
 
 支持：
 - MP3 (ID3v2)：标题、艺术家、专辑、年份、音轨号、碟号、专辑歌手、封面、原文/翻译歌词
+- M4A (MP4)：标题、艺术家、专辑、年份、音轨号、碟号、专辑歌手、封面、原文/翻译歌词
 - FLAC (Vorbis Comment)：同上
 - OGG (Vorbis / Opus，同为 Vorbis Comment)：字段集与 FLAC 对齐，
   封面按规范写 METADATA_BLOCK_PICTURE（base64 的 FLAC Picture 块）
@@ -16,6 +17,7 @@ from mutagen import File as MutagenFile
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import APIC, TALB, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, USLT
 from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
 
@@ -125,6 +127,84 @@ def write_mp3_tags(
         return True
     except Exception as e:
         logger.error("写入 MP3 标签失败 %s: %s", file_path.name, e)
+        return False
+
+
+def _mp4_number(value: int | str) -> tuple[int, int] | None:
+    """将音轨号或碟号转换为 MP4 使用的 (当前编号, 总数) 元组"""
+    parts = str(value or "").strip().split("/", 1)
+    if not parts[0].isdigit():
+        return None
+    number = int(parts[0])
+    total = int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else 0
+    if number <= 0 or number > 65535 or total > 65535:
+        return None
+    return number, total
+
+
+def write_mp4_tags(
+    file_path: Path,
+    title: str,
+    artist: str,
+    album: str,
+    year: str = "",
+    cover_url: str = "",
+    lyric: str | None = "",
+    tlyric: str | None = "",
+    track_no: int | str = 0,
+    disc_no: int | str = 0,
+    albumartist: str = "",
+    write_lyric: bool = True,
+    write_meta: bool = True,
+    preserve_cover: bool = False,
+) -> bool:
+    """写入 M4A/MP4 标签，并按调用选项保留已有歌词和封面"""
+    try:
+        audio = MP4(file_path)
+        if audio.tags is None:
+            audio.add_tags()
+        tags = audio.tags
+        if write_meta:
+            cover_exists = bool(tags.get("covr"))
+            for key in ("©nam", "©ART", "©alb", "©day", "trkn", "disk", "aART"):
+                tags.pop(key, None)
+            tags["©nam"] = [title]
+            tags["©ART"] = [artist]
+            tags["©alb"] = [album]
+            if year:
+                tags["©day"] = [year]
+            track = _mp4_number(track_no)
+            if track:
+                tags["trkn"] = [track]
+            disc = _mp4_number(disc_no)
+            if disc:
+                tags["disk"] = [disc]
+            if albumartist:
+                tags["aART"] = [albumartist]
+
+            if not preserve_cover:
+                tags.pop("covr", None)
+            cover = _download_cover(cover_url) if (not preserve_cover or not cover_exists) else None
+            if cover:
+                image_format = MP4Cover.FORMAT_PNG if _guess_cover_mime(cover) == "image/png" \
+                    else MP4Cover.FORMAT_JPEG
+                tags["covr"] = [MP4Cover(cover, imageformat=image_format)]
+
+        if write_lyric:
+            if lyric:
+                tags["©lyr"] = [lyric]
+            translation_key = "----:com.apple.iTunes:LYRICS-TRANSLATION"
+            if tlyric:
+                tags[translation_key] = [MP4FreeForm(
+                    tlyric.encode("utf-8"), dataformat=MP4FreeForm.FORMAT_TEXT
+                )]
+            elif translation_key in tags:
+                tags.pop(translation_key, None)
+
+        audio.save()
+        return True
+    except Exception as e:
+        logger.error("写入 M4A 标签失败 %s: %s", file_path.name, e)
         return False
 
 
@@ -326,7 +406,16 @@ def write_tags(file_path: Path, meta: dict,
     common["preserve_cover"] = preserve_cover
 
     if ext == ".mp3":
+        # 个别 AAC/M4A 文件扩展名误标为 MP3；按容器识别后仍可正确写标签。
+        try:
+            is_mp4 = isinstance(MutagenFile(str(file_path)), MP4)
+        except Exception:
+            is_mp4 = False
+        if is_mp4:
+            return write_mp4_tags(file_path, **common)
         return write_mp3_tags(file_path, **common)
+    if ext == ".m4a":
+        return write_mp4_tags(file_path, **common)
     if ext == ".flac":
         return write_flac_tags(file_path, **common)
     if ext == ".ogg":
