@@ -34,7 +34,8 @@
         const source = currentSource(item);
         if (!source) return '<span class="text-muted">尚未匹配</span>';
         const type = item.selectedSource ? "已确认候选" : "下载记录精确匹配";
-        return `<strong>${escapeHtml(platformNames[source.platform] || source.platform)} · ${escapeHtml(type)}</strong><small>${escapeHtml(source.name || source.song_id || "")}${source.artists ? " / " + escapeHtml(source.artists) : ""}</small>`;
+        const sourceKind = source.source_type === "program" ? " · 节目" : "";
+        return `<strong>${escapeHtml(platformNames[source.platform] || source.platform)}${sourceKind} · ${escapeHtml(type)}</strong><small>${escapeHtml(source.name || source.song_id || "")}${source.artists ? " / " + escapeHtml(source.artists) : ""}</small>`;
     }
 
     // 生成表格行并显示标签缺项、来源和当前操作状态。
@@ -44,7 +45,7 @@
         const info = [tags.artist, tags.album].filter(Boolean).map(escapeHtml).join(" · ");
         const action = currentSource(item)
             ? `<button class="btn metadata-action-btn" data-action="apply" data-index="${index}" ${item.read_error || running ? "disabled" : ""}><i class="bi bi-magic me-1"></i>写入标签</button>`
-            : `<button class="btn metadata-action-btn search" data-action="search" data-index="${index}" ${item.read_error || running ? "disabled" : ""}><i class="bi bi-search me-1"></i>匹配歌曲</button>`;
+            : `<button class="btn metadata-action-btn search" data-action="search" data-index="${index}" ${item.read_error || running ? "disabled" : ""}><i class="bi bi-search me-1"></i>匹配来源</button>`;
         const checkable = Boolean(currentSource(item)) && !item.read_error;
         const checked = checkable && Boolean(item.selected);
         let result = "";
@@ -129,7 +130,7 @@
         const tags = item.tags || {};
         document.getElementById("metadata-query").value = item.search_hint || tags.title || item.name.replace(/\.[^.]+$/, "");
         document.getElementById("metadata-platform").value = "netease";
-        document.getElementById("metadata-candidates").innerHTML = '<p class="metadata-candidates-empty">搜索后请核对歌名、歌手和专辑，再选择正确版本。</p>';
+        document.getElementById("metadata-candidates").innerHTML = '<p class="metadata-candidates-empty">搜索后请核对标题、作者和专辑，再选择正确版本。</p>';
         searchModal.show();
         setTimeout(() => document.getElementById("metadata-query").focus(), 150);
     }
@@ -137,10 +138,13 @@
     // 通过现有发现接口查询候选歌曲，由用户确认正确版本。
     async function searchCandidates() {
         const keyword = document.getElementById("metadata-query").value.trim();
-        const platform = document.getElementById("metadata-platform").value;
+        const selectedMode = document.getElementById("metadata-platform").value;
+        // QQ 节目沿用 QQ 平台接口，但标签写入时只用节目搜索返回的数据。
+        const platform = selectedMode === "qq_program" ? "qq" : selectedMode;
+        const sourceType = selectedMode === "qq_program" ? "program" : "song";
         const target = document.getElementById("metadata-candidates");
         if (!keyword) {
-            showToast("输入歌曲名或歌手后再搜索");
+            showToast("输入歌曲或节目名 / 作者后再搜索");
             return;
         }
         target.innerHTML = '<p class="metadata-candidates-empty"><span class="loading-spinner"></span> 正在搜索候选…</p>';
@@ -148,7 +152,7 @@
             const response = await api("/api/discover/search", {
                 method: "POST",
                 timeout: 30000,
-                body: JSON.stringify({ keyword, platform, type: "song", limit: 15, offset: 0 }),
+                body: JSON.stringify({ keyword, platform, type: sourceType, limit: 15, offset: 0 }),
             });
             const candidates = (response.data.items || []).filter(candidate => candidate.id);
             if (!candidates.length) {
@@ -156,7 +160,7 @@
                 return;
             }
             target.innerHTML = candidates.map((candidate, index) => `<article class="metadata-candidate">
-                <div><strong>${escapeHtml(candidate.name || "未知歌曲")}</strong><small>${escapeHtml(candidate.artists || "未知歌手")} · ${escapeHtml(candidate.album || "未知专辑")}</small></div>
+                <div><strong>${escapeHtml(candidate.name || (sourceType === "program" ? "未知节目" : "未知歌曲"))}</strong><small>${escapeHtml(candidate.artists || "未知作者")} · ${escapeHtml(candidate.album || "未知专辑")}</small></div>
                 <button class="btn" type="button" data-candidate="${index}">选这个</button>
             </article>`).join("");
             target.querySelectorAll("[data-candidate]").forEach(button => {
@@ -165,17 +169,19 @@
                     const item = items[activeIndex];
                     item.selectedSource = {
                         platform,
+                        source_type: sourceType,
                         song_id: String(candidate.id),
                         name: candidate.name || "",
                         artists: candidate.artists || "",
                         album: candidate.album || "",
+                        cover_url: candidate.cover_url || "",
                     };
                     item.selected = true;
                     item.result = "";
                     item.error = "";
                     searchModal.hide();
                     render();
-                    showToast(`已匹配：${candidate.name || "歌曲"}`, "候选已确认");
+                    showToast(`已匹配：${candidate.name || (sourceType === "program" ? "节目" : "歌曲")}`, "候选已确认");
                 });
             });
         } catch (error) {
@@ -191,6 +197,7 @@
             artists: source.artists || "",
             artist: source.artists || "",
             album: source.album || "",
+            cover_url: source.cover_url || "",
         };
     }
 
@@ -210,6 +217,7 @@
                     root: rootPath,
                     relative_path: item.relative_path,
                     platform: source.platform,
+                    source_type: source.source_type || "song",
                     song_id: source.song_id,
                     fallback: sourceFallback(source),
                     overwrite: overwriteInput.checked,

@@ -319,16 +319,19 @@ def scan_metadata_library():
 
 @api_bp.route("/metadata/apply", methods=["POST"])
 def apply_metadata_to_file():
-    """按用户确认的歌曲来源写回一个音频文件的标签"""
+    """按用户确认的歌曲或 QQ 节目来源写回一个音频文件的标签"""
     denied = _metadata_admin_denied()
     if denied:
         return denied
     data = _json_body()
     platform = (data.get("platform") or "").strip().lower()
+    source_type = (data.get("source_type") or "song").strip().lower()
     song_id = str(data.get("song_id") or "").strip()
     relative_path = Path(str(data.get("relative_path") or ""))
-    if platform not in PLATFORMS or not song_id or len(song_id) > 64:
-        return jsonify({"code": 1, "msg": "歌曲来源无效，请重新匹配"}), 400
+    if platform not in PLATFORMS or source_type not in ("song", "program") \
+            or (source_type == "program" and platform != "qq") \
+            or not song_id or len(song_id) > 64:
+        return jsonify({"code": 1, "msg": "来源无效，请重新匹配"}), 400
     if relative_path.is_absolute() or ".." in relative_path.parts or not relative_path.parts:
         return jsonify({"code": 1, "msg": "文件路径无效，请重新扫描目录"}), 400
     try:
@@ -337,9 +340,13 @@ def apply_metadata_to_file():
         path.relative_to(root)
         if not path.is_file() or path.suffix.lower() not in SUPPORTED_AUDIO_SUFFIXES:
             raise ValueError("目标文件不存在或格式暂不支持")
-        client = _get_client(platform)
-        details = client.get_song_detail([song_id])
-        source = details[0] if details and isinstance(details[0], dict) else {}
+        # QQ 节目 ID 不属于歌曲 MID；节目候选已提供可用标签，不能调用歌曲详情接口。
+        if source_type == "program":
+            source = {}
+        else:
+            client = _get_client(platform)
+            details = client.get_song_detail([song_id])
+            source = details[0] if details and isinstance(details[0], dict) else {}
         fallback = data.get("fallback") if isinstance(data.get("fallback"), dict) else {}
         for field in ("title", "artist", "album", "year", "track_no", "disc_no", "albumartist", "cover_url"):
             if not source.get(field):

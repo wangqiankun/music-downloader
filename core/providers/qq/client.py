@@ -642,6 +642,14 @@ class QqClient:
                 album_name = album.get("name") or album.get("title") or ""
             else:
                 album_name = str(album or "")
+            cover_url = _fix_img_url(
+                program.get("pic") or program.get("cover")
+                or program.get("cover_url") or program.get("picurl") or ""
+            )
+            if not cover_url and isinstance(album, dict):
+                cover_url = _fix_img_url(album.get("pic") or album.get("cover") or "")
+                if not cover_url and album.get("mid"):
+                    cover_url = _album_cover_url(str(album["mid"]))
             try:
                 duration = int(program.get("interval") or program.get("duration") or 0)
             except (TypeError, ValueError):
@@ -652,6 +660,7 @@ class QqClient:
                 "name": program.get("name") or program.get("title") or program.get("search_title") or "",
                 "artists": str(artists),
                 "album": album_name,
+                "cover_url": cover_url,
                 "duration": duration,
             })
         return {"items": out, "total": total}

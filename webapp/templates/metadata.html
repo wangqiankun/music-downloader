@@ -82,19 +82,19 @@
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content metadata-modal">
             <div class="modal-header">
-                <div><p class="metadata-eyebrow">MATCH THE RECORD</p><h2 class="modal-title" id="metadata-search-title">搜索并确认歌曲</h2></div>
+                <div><p class="metadata-eyebrow">MATCH THE RECORD</p><h2 class="modal-title" id="metadata-search-title">搜索并确认来源</h2></div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
             </div>
             <div class="modal-body">
                 <div class="metadata-search-form">
                     <select id="metadata-platform" class="form-select" aria-label="音乐平台">
-                        <option value="netease">网易云</option><option value="qq">QQ音乐</option><option value="kugou">酷狗</option>
+                        <option value="netease">网易云</option><option value="qq">QQ音乐歌曲</option><option value="qq_program">QQ音乐节目</option><option value="kugou">酷狗</option>
                     </select>
-                    <input id="metadata-query" class="form-control" type="search" placeholder="歌曲名 / 歌手" aria-label="搜索关键词">
+                    <input id="metadata-query" class="form-control" type="search" placeholder="歌曲或节目名 / 歌手" aria-label="搜索关键词">
                     <button id="metadata-search-button" class="btn btn-dark" type="button">搜索候选</button>
                 </div>
                 <div id="metadata-candidates" class="metadata-candidates" aria-live="polite">
-                    <p class="metadata-candidates-empty">搜索后请核对歌名、歌手和专辑，再选择正确版本。</p>
+                    <p class="metadata-candidates-empty">搜索后请核对标题、作者和专辑，再选择正确版本。</p>
                 </div>
             </div>
             <div class="modal-footer"><span>选择候选后会回到清单；确认写入时才会修改文件。</span><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button></div>
