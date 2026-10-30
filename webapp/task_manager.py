@@ -1523,7 +1523,7 @@ class TaskManager:
                               account_id=account.id, platform=account.platform)
             return
 
-        # 主歌手 = 第一个歌手（下载子目录）。优先任务记录的 artists
+        # 主歌手 = 第一个歌手，专辑名缺失时用作下载目录回退。优先任务记录的 artists
         # （三平台均含全部歌手；分隔符不统一：网易云/QQ 用 '/'，酷狗
         # 搜索链路用 '、'，故按 [/、] 拆分），取不到回退 meta.artist
         # （酷狗为 '、' 连接的全部歌手，同样拆第一个），再回退 群星
@@ -1532,6 +1532,8 @@ class TaskManager:
         primary_artist = re.split(r"[/、]", _source_artists)[0].strip() \
             if _source_artists.strip() else ""
         primary_artist = sanitize_filename(primary_artist) if primary_artist else "群星"
+        # 音频优先按专辑名归档；缺少专辑元数据时回退到主歌手目录。
+        download_subdir = album_name.strip() or primary_artist
 
         # 下载文件（文件名保留全部歌手：build_filename(artists, sname)；
         # filename_include_album 开启时附加专辑名，同歌手同名不同版本
@@ -1563,7 +1565,7 @@ class TaskManager:
         try:
             outcome = downloader.download(
                 url=url,
-                sub_dir=primary_artist,
+                sub_dir=download_subdir,
                 filename=filename,
                 expected_size=size,
                 progress_callback=progress_cb,
